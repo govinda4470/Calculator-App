@@ -7,18 +7,27 @@ import 'market_data_service.dart';
 class CryptoExpertService {
   CryptoExpertService({HttpClient? client}) : _client = client ?? HttpClient();
   final HttpClient _client;
+  static const int _maxResponseBytes = 256 * 1024;
 
   Future<String> askOnline({
     required String question,
     required String apiKey,
     required MarketSnapshot snapshot,
   }) async {
-    if (apiKey.trim().isEmpty) throw const CryptoExpertException('Enter an API key first.');
+    final cleanQuestion = question.trim();
+    final cleanKey = apiKey.trim();
+    if (cleanQuestion.isEmpty || cleanQuestion.length > 600) {
+      throw const CryptoExpertException('Questions must be between 1 and 600 characters.');
+    }
+    if (cleanKey.length < 16 || cleanKey.length > 256 || cleanKey.contains(RegExp(r'\s'))) {
+      throw const CryptoExpertException('The AI credential format is invalid.');
+    }
     final request = await _client
         .postUrl(Uri.parse('https://openrouter.ai/api/v1/chat/completions'))
         .timeout(const Duration(seconds: 20));
+    request.followRedirects = false;
     request.headers
-      ..set(HttpHeaders.authorizationHeader, 'Bearer ${apiKey.trim()}')
+      ..set(HttpHeaders.authorizationHeader, 'Bearer $cleanKey')
       ..set(HttpHeaders.contentTypeHeader, 'application/json')
       ..set('HTTP-Referer', 'https://github.com/govinda4470/Calculator-App')
       ..set('X-Title', 'Precision Calc');
@@ -36,31 +45,45 @@ class CryptoExpertService {
         },
         {
           'role': 'user',
-          'content': '${_marketContext(snapshot)}\n\nQuestion: $question',
+          'content': '${_marketContext(snapshot)}\n\nQuestion: $cleanQuestion',
         },
       ],
     }));
     try {
       final response = await request.close().timeout(const Duration(seconds: 30));
-      final body = await utf8.decoder.bind(response).join();
-      final json = jsonDecode(body);
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        final message = json is Map ? json['error']?.toString() : null;
-        throw CryptoExpertException(message ?? 'AI provider returned HTTP ${response.statusCode}.');
+        throw CryptoExpertException('AI provider rejected the request (${response.statusCode}).');
       }
+      if (response.contentLength > _maxResponseBytes) {
+        throw const CryptoExpertException('The AI response was too large.');
+      }
+      final bytes = <int>[];
+      await for (final chunk in response.timeout(const Duration(seconds: 30))) {
+        if (bytes.length + chunk.length > _maxResponseBytes) {
+          throw const CryptoExpertException('The AI response was too large.');
+        }
+        bytes.addAll(chunk);
+      }
+      final json = jsonDecode(utf8.decode(bytes));
       if (json is! Map) throw const CryptoExpertException('Unexpected AI response.');
       final choices = json['choices'];
       if (choices is! List || choices.isEmpty) throw const CryptoExpertException('The AI returned no answer.');
       final first = choices.first;
       final content = first is Map && first['message'] is Map ? first['message']['content'] : null;
       if (content is! String || content.trim().isEmpty) throw const CryptoExpertException('The AI returned an empty answer.');
-      return content.trim();
+      final cleanContent = content.trim();
+      return cleanContent.length > 6000 ? cleanContent.substring(0, 6000) : cleanContent;
     } on TimeoutException {
       throw const CryptoExpertException('The AI request timed out.');
     } on CryptoExpertException {
       rethrow;
-    } on Object catch (error) {
-      throw CryptoExpertException('AI request failed: $error');
+    } on FormatException {
+      throw const CryptoExpertException('The AI provider returned invalid data.');
+    } on SocketException {
+      throw const CryptoExpertException('The AI service is unavailable. Check your connection.');
+    } on Object {
+      // Never surface transport internals or credentials in user-visible text.
+      throw const CryptoExpertException('The AI request could not be completed securely.');
     }
   }
 

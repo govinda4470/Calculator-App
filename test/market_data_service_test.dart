@@ -41,4 +41,17 @@ void main() {
     expect(response, contains('BTC'));
     expect(response, contains('not financial advice'));
   });
+
+  test('online expert rejects oversized prompts before sending', () async {
+    final expert = CryptoExpertService();
+    await expectLater(
+      expert.askOnline(
+        question: List.filled(601, 'x').join(),
+        apiKey: 'valid-looking-test-key-123456',
+        snapshot: MarketSnapshot.sample(),
+      ),
+      throwsA(isA<CryptoExpertException>()),
+    );
+    expert.close();
+  });
 }

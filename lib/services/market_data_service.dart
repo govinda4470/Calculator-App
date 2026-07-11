@@ -51,20 +51,45 @@ class MarketDataService {
 
   final HttpClient _client;
   static const Duration _timeout = Duration(seconds: 12);
+  static const int _maxResponseBytes = 1024 * 1024;
+  static const Set<String> _allowedHosts = {
+    'api.frankfurter.app',
+    'api.coingecko.com',
+    'api.binance.com',
+  };
+  static Map<String, double>? _fiatCache;
+  static DateTime? _fiatCachedAt;
+  static MarketSnapshot? _cryptoCache;
 
-  Future<Map<String, double>> fetchUsdFiatFactors() async {
+  Future<Map<String, double>> fetchUsdFiatFactors({bool forceRefresh = false}) async {
+    final cachedAt = _fiatCachedAt;
+    if (!forceRefresh &&
+        _fiatCache != null &&
+        cachedAt != null &&
+        DateTime.now().difference(cachedAt) < const Duration(hours: 6)) {
+      return Map.unmodifiable(_fiatCache!);
+    }
     final json = await _getJson(Uri.parse('https://api.frankfurter.app/latest?from=USD'));
-    return parseFiatFactors(json);
+    final factors = parseFiatFactors(json);
+    _fiatCache = Map.unmodifiable(factors);
+    _fiatCachedAt = DateTime.now();
+    return Map.unmodifiable(factors);
   }
 
-  Future<MarketSnapshot> fetchCryptoSnapshot() async {
+  Future<MarketSnapshot> fetchCryptoSnapshot({bool forceRefresh = false}) async {
+    final cached = _cryptoCache;
+    if (!forceRefresh && cached != null && DateTime.now().difference(cached.updatedAt) < const Duration(minutes: 2)) {
+      return cached;
+    }
     final uri = Uri.parse(
       'https://api.coingecko.com/api/v3/simple/price'
       '?ids=bitcoin,ethereum,solana,binancecoin,tether'
       '&vs_currencies=usd,inr&include_24hr_change=true',
     );
     try {
-      return parseCryptoSnapshot(await _getJson(uri), DateTime.now());
+      final snapshot = parseCryptoSnapshot(await _getJson(uri), DateTime.now());
+      _cryptoCache = snapshot;
+      return snapshot;
     } on Object {
       // CoinGecko can require a demo key or throttle anonymous clients. Binance
       // public tickers provide a keyless fallback for the supported pairs.
@@ -75,21 +100,36 @@ class MarketDataService {
               await _getJson(Uri.parse('https://api.binance.com/api/v3/ticker/24hr?symbol=${entry.value}')),
             )),
       );
-      return parseBinanceSnapshot(Map.fromEntries(responses), DateTime.now());
+      final snapshot = parseBinanceSnapshot(Map.fromEntries(responses), DateTime.now());
+      _cryptoCache = snapshot;
+      return snapshot;
     }
   }
 
   Future<Map<String, dynamic>> _getJson(Uri uri) async {
+    if (uri.scheme != 'https' || !_allowedHosts.contains(uri.host)) {
+      throw const MarketDataException('Blocked an untrusted market-data endpoint.');
+    }
     try {
       final request = await _client.getUrl(uri).timeout(_timeout);
+      request.followRedirects = false;
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
       request.headers.set(HttpHeaders.userAgentHeader, 'PrecisionCalc/1.0');
       final response = await request.close().timeout(_timeout);
-      final body = await utf8.decoder.bind(response).join().timeout(_timeout);
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw MarketDataException('Provider returned HTTP ${response.statusCode}.');
       }
-      final decoded = jsonDecode(body);
+      if (response.contentLength > _maxResponseBytes) {
+        throw const MarketDataException('Provider response was too large.');
+      }
+      final bytes = <int>[];
+      await for (final chunk in response.timeout(_timeout)) {
+        if (bytes.length + chunk.length > _maxResponseBytes) {
+          throw const MarketDataException('Provider response was too large.');
+        }
+        bytes.addAll(chunk);
+      }
+      final decoded = jsonDecode(utf8.decode(bytes));
       if (decoded is! Map<String, dynamic>) {
         throw const MarketDataException('Provider returned an unexpected response.');
       }
@@ -98,9 +138,20 @@ class MarketDataService {
       throw const MarketDataException('The market-data request timed out.');
     } on MarketDataException {
       rethrow;
-    } on Object catch (error) {
-      throw MarketDataException('Could not load market data: $error');
+    } on FormatException {
+      throw const MarketDataException('Provider returned invalid market data.');
+    } on SocketException {
+      throw const MarketDataException('Market data is unavailable. Check your connection.');
+    } on Object {
+      // Do not expose socket, certificate, or internal provider details in UI.
+      throw const MarketDataException('Market data is temporarily unavailable.');
     }
+  }
+
+  static void clearMemoryCache() {
+    _fiatCache = null;
+    _fiatCachedAt = null;
+    _cryptoCache = null;
   }
 
   static Map<String, double> parseFiatFactors(Map<String, dynamic> json) {

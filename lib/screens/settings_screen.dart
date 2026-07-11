@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../services/market_data_service.dart';
 import '../theme.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -109,6 +110,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     trailing: Switch(value: _lockAlerts, onChanged: (value) => setState(() => _lockAlerts = value)),
                   ),
                 ]),
+                _section('Security & privacy', [
+                  const _SettingsTile(
+                    icon: Icons.screenshot_monitor_outlined,
+                    title: 'Sensitive screen protection',
+                    subtitle: 'Screenshots are blocked inside the crypto workspace',
+                    trailing: Icon(Icons.verified_user_outlined, color: AppColors.green),
+                  ),
+                  const _SettingsTile(
+                    icon: Icons.cloud_off_outlined,
+                    title: 'Private session data',
+                    subtitle: 'Portfolio and AI credentials are not saved on this device',
+                    trailing: Icon(Icons.check_circle_outline, color: AppColors.green),
+                  ),
+                  const _SettingsTile(
+                    icon: Icons.https_outlined,
+                    title: 'Secure connections',
+                    subtitle: 'Clear-text network traffic and Android backups are disabled',
+                    trailing: Icon(Icons.lock_outline, color: AppColors.green),
+                  ),
+                  _SettingsTile(
+                    icon: Icons.privacy_tip_outlined,
+                    title: 'How your data is used',
+                    subtitle: 'Review network providers and privacy behavior',
+                    trailing: const Icon(Icons.chevron_right, color: AppColors.warm),
+                    onTap: _showPrivacyDetails,
+                  ),
+                ]),
                 _section('About', const [
                   _SettingsTile(icon: Icons.info_outline, title: 'Version', trailing: Text('v1.0.0', style: TextStyle(color: AppColors.warm))),
                   _SettingsTile(icon: Icons.description_outlined, title: 'Terms of Service', trailing: Icon(Icons.open_in_new, color: AppColors.warm)),
@@ -142,8 +170,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Future<void> _showPrivacyDetails() async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        icon: const Icon(Icons.shield_outlined, color: AppColors.green, size: 38),
+        title: const Text('Privacy by design'),
+        content: const SingleChildScrollView(
+          child: Text(
+            'Calculations stay on your device. Portfolio entries and a user-provided AI credential live only in memory and are erased when the app process closes. '
+            'Currency requests are sent to Frankfurter; market requests are sent to CoinGecko or Binance. If you explicitly connect online AI, your question and the visible market snapshot are sent directly to OpenRouter over HTTPS. '
+            'The app does not request contacts, location, camera, microphone, storage, or advertising permissions.',
+          ),
+        ),
+        actions: [
+          FilledButton(onPressed: () => Navigator.pop(context), child: const Text('Understood')),
+        ],
+      ),
+    );
+  }
+
   void _cacheCleared() {
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cached rate data cleared')));
+    MarketDataService.clearMemoryCache();
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('In-memory rate cache cleared')));
   }
 }
 

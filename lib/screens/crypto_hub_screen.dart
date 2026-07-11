@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/crypto_expert_service.dart';
 import '../services/market_data_service.dart';
+import '../services/platform_security_service.dart';
 import '../theme.dart';
 
 class CryptoHubScreen extends StatefulWidget {
@@ -28,22 +29,25 @@ class _CryptoHubScreenState extends State<CryptoHubScreen> {
   @override
   void initState() {
     super.initState();
+    PlatformSecurityService.setSecureScreen(true);
     _refreshMarket();
   }
 
   @override
   void dispose() {
+    PlatformSecurityService.setSecureScreen(false);
     _marketData.close();
     super.dispose();
   }
 
-  Future<void> _refreshMarket() async {
+  Future<void> _refreshMarket({bool forceRefresh = false}) async {
+    if (_loadingMarket && forceRefresh) return;
     setState(() {
       _loadingMarket = true;
       _marketError = null;
     });
     try {
-      final snapshot = await _marketData.fetchCryptoSnapshot();
+      final snapshot = await _marketData.fetchCryptoSnapshot(forceRefresh: forceRefresh);
       if (!mounted) return;
       setState(() {
         _snapshot = snapshot;
@@ -96,7 +100,7 @@ class _CryptoHubScreenState extends State<CryptoHubScreen> {
         index: _tab,
         children: [
           _portfolio(),
-          _MarketsView(snapshot: _snapshot, onRefresh: _refreshMarket),
+          _MarketsView(snapshot: _snapshot, onRefresh: () => _refreshMarket(forceRefresh: true)),
           _AnalyticsView(total: _total),
           _ExpertView(snapshot: _snapshot),
         ],
@@ -125,7 +129,7 @@ class _CryptoHubScreenState extends State<CryptoHubScreen> {
           loading: _loadingMarket,
           snapshot: _snapshot,
           error: _marketError,
-          onRefresh: _refreshMarket,
+          onRefresh: () => _refreshMarket(forceRefresh: true),
         ),
         const SizedBox(height: 16),
         const Text('TOTAL BALANCE', style: TextStyle(color: AppColors.muted, fontSize: 12, letterSpacing: 1.3)),
@@ -462,6 +466,7 @@ class _ExpertViewState extends State<_ExpertView> {
           controller: _controller,
           minLines: 1,
           maxLines: 3,
+          maxLength: 600,
           decoration: InputDecoration(
             hintText: 'Ask about a market concept…',
             filled: true,

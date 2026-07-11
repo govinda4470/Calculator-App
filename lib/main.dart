@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'screens/calculator_screen.dart';
 import 'screens/converter_screen.dart';
 import 'screens/settings_screen.dart';
+import 'services/platform_security_service.dart';
 import 'theme.dart';
 
 void main() => runApp(const PrecisionCalcApp());
@@ -31,6 +32,12 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   int _index = 0;
   bool _cryptoToolsEnabled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    PlatformSecurityService.setSecureScreen(false);
+  }
 
   @override
   Widget build(BuildContext context) {

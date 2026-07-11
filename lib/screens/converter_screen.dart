@@ -58,14 +58,15 @@ class _ConverterScreenState extends State<ConverterScreen> {
     super.dispose();
   }
 
-  Future<void> _refreshRates() async {
+  Future<void> _refreshRates({bool forceRefresh = false}) async {
+    if (_refreshingRates && forceRefresh) return;
     setState(() {
       _refreshingRates = true;
       _rateError = null;
     });
     String? error;
     try {
-      final factors = await _marketData.fetchUsdFiatFactors();
+      final factors = await _marketData.fetchUsdFiatFactors(forceRefresh: forceRefresh);
       final currency = _categories.firstWhere((item) => item.name == 'Currency');
       for (final symbol in currency.units.keys.toList()) {
         if (factors[symbol] != null) currency.units[symbol] = factors[symbol]!;
@@ -78,7 +79,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
       _fiatLive = false;
     }
     try {
-      final snapshot = await _marketData.fetchCryptoSnapshot();
+      final snapshot = await _marketData.fetchCryptoSnapshot(forceRefresh: forceRefresh);
       final crypto = _categories.firstWhere((item) => item.name == 'Crypto');
       for (final entry in snapshot.crypto.entries) {
         crypto.units[entry.key] = entry.value.usd;
@@ -209,7 +210,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
                               live: _category.name == 'Crypto' ? _cryptoLive : _fiatLive,
                               updatedAt: _ratesUpdatedAt,
                               error: _rateError,
-                              onRefresh: _refreshRates,
+                              onRefresh: () => _refreshRates(forceRefresh: true),
                             ),
                           const Spacer(),
                           _ValuePanel(

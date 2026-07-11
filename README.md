@@ -14,7 +14,9 @@ A polished Flutter calculator based on the supplied **Precision Dark** design.
 - Optional online LLM answers through a user-supplied OpenRouter key (held only in memory)
 - Clear stale/sample-data and financial-risk disclosures
 - Swap units and responsive dark UI
-- Settings for precision, haptics, rate updates, crypto visibility, and notifications
+- Settings for precision, haptics, rate updates, crypto visibility, notifications, and privacy details
+- HTTPS-only Android traffic, backup blocking, bounded API responses, and sensitive-screen protection
+- In-memory market caching for faster navigation and fewer provider requests
 
 ## Run
 ```bash
