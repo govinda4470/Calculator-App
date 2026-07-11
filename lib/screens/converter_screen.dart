@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../calculator_engine.dart';
 import '../theme.dart';
+import '../services/market_data_service.dart';
 import '../widgets/keypad.dart';
 import 'crypto_hub_screen.dart';
 
@@ -20,7 +21,8 @@ class ConverterScreen extends StatefulWidget {
 }
 
 class _ConverterScreenState extends State<ConverterScreen> {
-  static const _categories = <_Category>[
+  final _marketData = MarketDataService();
+  final _categories = <_Category>[
     _Category('Length', Icons.straighten, {'Meters': 1, 'Kilometers': 1000, 'Centimeters': .01, 'Miles': 1609.344, 'Feet': .3048, 'Inches': .0254}),
     _Category('Weight', Icons.fitness_center, {'Kilograms': 1, 'Grams': .001, 'Pounds': .45359237, 'Ounces': .0283495, 'Tonnes': 1000}),
     _Category('Volume', Icons.water_drop_outlined, {'Liters': 1, 'Milliliters': .001, 'Gallons (US)': 3.7854118, 'Cups': .236588, 'Fluid ounces': .0295735}),
@@ -32,10 +34,67 @@ class _ConverterScreenState extends State<ConverterScreen> {
 
   int _categoryIndex = 0;
   String _input = '1';
-  late String _from = _categories.first.units.keys.first;
-  late String _to = _categories.first.units.keys.elementAt(1);
+  late String _from;
+  late String _to;
+  bool _refreshingRates = true;
+  bool _fiatLive = false;
+  bool _cryptoLive = false;
+  String? _rateError;
+  DateTime? _ratesUpdatedAt;
 
   _Category get _category => _categories[_categoryIndex];
+
+  @override
+  void initState() {
+    super.initState();
+    _from = _categories.first.units.keys.first;
+    _to = _categories.first.units.keys.elementAt(1);
+    _refreshRates();
+  }
+
+  @override
+  void dispose() {
+    _marketData.close();
+    super.dispose();
+  }
+
+  Future<void> _refreshRates() async {
+    setState(() {
+      _refreshingRates = true;
+      _rateError = null;
+    });
+    String? error;
+    try {
+      final factors = await _marketData.fetchUsdFiatFactors();
+      final currency = _categories.firstWhere((item) => item.name == 'Currency');
+      for (final symbol in currency.units.keys.toList()) {
+        if (factors[symbol] != null) currency.units[symbol] = factors[symbol]!;
+      }
+      final crypto = _categories.firstWhere((item) => item.name == 'Crypto');
+      if (factors['INR'] != null) crypto.units['INR'] = factors['INR']!;
+      _fiatLive = true;
+    } on Object catch (exception) {
+      error = exception.toString();
+      _fiatLive = false;
+    }
+    try {
+      final snapshot = await _marketData.fetchCryptoSnapshot();
+      final crypto = _categories.firstWhere((item) => item.name == 'Crypto');
+      for (final entry in snapshot.crypto.entries) {
+        crypto.units[entry.key] = entry.value.usd;
+      }
+      _cryptoLive = true;
+    } on Object catch (exception) {
+      error = error == null ? exception.toString() : '$error Crypto: $exception';
+      _cryptoLive = false;
+    }
+    if (!mounted) return;
+    setState(() {
+      _refreshingRates = false;
+      _rateError = error;
+      if (_fiatLive || _cryptoLive) _ratesUpdatedAt = DateTime.now();
+    });
+  }
 
   double get _result {
     final value = double.tryParse(_input) ?? 0;
@@ -145,18 +204,12 @@ class _ConverterScreenState extends State<ConverterScreen> {
                       child: Column(
                         children: [
                           if (_category.name == 'Currency' || _category.name == 'Crypto')
-                            Align(
-                              alignment: Alignment.centerLeft,
-                              child: Row(children: [
-                                Icon(Icons.circle, color: _category.name == 'Crypto' ? AppColors.orange : AppColors.green, size: 11),
-                                const SizedBox(width: 7),
-                                Text(
-                                  _category.name == 'Crypto' ? 'SAMPLE RATES' : 'INDICATIVE RATES',
-                                  style: const TextStyle(color: AppColors.text, fontSize: 12, letterSpacing: 1.2),
-                                ),
-                                const Spacer(),
-                                Text(_category.name == 'Crypto' ? 'Offline demo' : 'Reference only', style: const TextStyle(color: AppColors.muted, fontSize: 11)),
-                              ]),
+                            _RateStatus(
+                              loading: _refreshingRates,
+                              live: _category.name == 'Crypto' ? _cryptoLive : _fiatLive,
+                              updatedAt: _ratesUpdatedAt,
+                              error: _rateError,
+                              onRefresh: _refreshRates,
                             ),
                           const Spacer(),
                           _ValuePanel(
@@ -272,6 +325,54 @@ class _ConverterScreenState extends State<ConverterScreen> {
       'Kelvin' => celsius + 273.15,
       _ => celsius,
     };
+  }
+}
+
+class _RateStatus extends StatelessWidget {
+  const _RateStatus({
+    required this.loading,
+    required this.live,
+    required this.updatedAt,
+    required this.error,
+    required this.onRefresh,
+  });
+
+  final bool loading;
+  final bool live;
+  final DateTime? updatedAt;
+  final String? error;
+  final VoidCallback onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    final time = updatedAt == null
+        ? 'Using cached sample rates'
+        : 'Updated ${updatedAt!.hour.toString().padLeft(2, '0')}:${updatedAt!.minute.toString().padLeft(2, '0')}';
+    return Row(children: [
+      if (loading)
+        const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2))
+      else
+        Icon(Icons.circle, color: live ? AppColors.green : AppColors.orange, size: 11),
+      const SizedBox(width: 7),
+      Text(
+        loading ? 'UPDATING RATES' : live ? 'LIVE RATES' : 'OFFLINE RATES',
+        style: const TextStyle(color: AppColors.text, fontSize: 12, letterSpacing: 1.2),
+      ),
+      const Spacer(),
+      Flexible(
+        child: Text(
+          error != null && !live ? 'Tap to retry' : time,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(color: AppColors.muted, fontSize: 11),
+        ),
+      ),
+      IconButton(
+        visualDensity: VisualDensity.compact,
+        tooltip: 'Refresh rates',
+        onPressed: loading ? null : onRefresh,
+        icon: const Icon(Icons.refresh, size: 18, color: AppColors.warm),
+      ),
+    ]);
   }
 }
 

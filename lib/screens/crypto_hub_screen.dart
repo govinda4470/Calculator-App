@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../services/crypto_expert_service.dart';
+import '../services/market_data_service.dart';
 import '../theme.dart';
 
 class CryptoHubScreen extends StatefulWidget {
@@ -11,6 +13,10 @@ class CryptoHubScreen extends StatefulWidget {
 
 class _CryptoHubScreenState extends State<CryptoHubScreen> {
   int _tab = 0;
+  final _marketData = MarketDataService();
+  MarketSnapshot _snapshot = MarketSnapshot.sample();
+  bool _loadingMarket = true;
+  String? _marketError;
   final List<_Asset> _assets = [
     const _Asset('Bitcoin', 'BTC', 0.245, 64231.20, 2.4, Color(0xFFF7931A)),
     const _Asset('Ethereum', 'ETH', 1.75, 3520.45, 1.8, Color(0xFF627EEA)),
@@ -18,6 +24,46 @@ class _CryptoHubScreenState extends State<CryptoHubScreen> {
   ];
 
   double get _total => _assets.fold(0.0, (sum, asset) => sum + asset.amount * asset.price);
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshMarket();
+  }
+
+  @override
+  void dispose() {
+    _marketData.close();
+    super.dispose();
+  }
+
+  Future<void> _refreshMarket() async {
+    setState(() {
+      _loadingMarket = true;
+      _marketError = null;
+    });
+    try {
+      final snapshot = await _marketData.fetchCryptoSnapshot();
+      if (!mounted) return;
+      setState(() {
+        _snapshot = snapshot;
+        for (var i = 0; i < _assets.length; i++) {
+          final asset = _assets[i];
+          final quote = snapshot.crypto[asset.symbol];
+          if (quote != null) {
+            _assets[i] = _Asset(asset.name, asset.symbol, asset.amount, quote.usd, quote.change24h, asset.color);
+          }
+        }
+        _loadingMarket = false;
+      });
+    } on Object catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loadingMarket = false;
+        _marketError = error.toString();
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -35,7 +81,14 @@ class _CryptoHubScreenState extends State<CryptoHubScreen> {
             margin: const EdgeInsets.only(right: 14),
             padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
             decoration: BoxDecoration(color: AppColors.key, borderRadius: BorderRadius.circular(6)),
-            child: const Text('SAMPLE', style: TextStyle(color: AppColors.muted, fontSize: 10, letterSpacing: 1.2)),
+            child: Text(
+              _loadingMarket ? 'SYNC' : _snapshot.isLive ? 'LIVE' : 'SAMPLE',
+              style: TextStyle(
+                color: _snapshot.isLive ? AppColors.green : AppColors.muted,
+                fontSize: 10,
+                letterSpacing: 1.2,
+              ),
+            ),
           ),
         ],
       ),
@@ -43,9 +96,9 @@ class _CryptoHubScreenState extends State<CryptoHubScreen> {
         index: _tab,
         children: [
           _portfolio(),
-          const _MarketsView(),
+          _MarketsView(snapshot: _snapshot, onRefresh: _refreshMarket),
           _AnalyticsView(total: _total),
-          const _ExpertView(),
+          _ExpertView(snapshot: _snapshot),
         ],
       ),
       bottomNavigationBar: NavigationBar(
@@ -68,6 +121,13 @@ class _CryptoHubScreenState extends State<CryptoHubScreen> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
       children: [
+        _MarketStatusBanner(
+          loading: _loadingMarket,
+          snapshot: _snapshot,
+          error: _marketError,
+          onRefresh: _refreshMarket,
+        ),
+        const SizedBox(height: 16),
         const Text('TOTAL BALANCE', style: TextStyle(color: AppColors.muted, fontSize: 12, letterSpacing: 1.3)),
         const SizedBox(height: 7),
         FittedBox(
@@ -208,7 +268,9 @@ class _AssetCard extends StatelessWidget {
 }
 
 class _MarketsView extends StatefulWidget {
-  const _MarketsView();
+  const _MarketsView({required this.snapshot, required this.onRefresh});
+  final MarketSnapshot snapshot;
+  final VoidCallback onRefresh;
   @override
   State<_MarketsView> createState() => _MarketsViewState();
 }
@@ -230,17 +292,25 @@ class _MarketsViewState extends State<_MarketsView> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 30),
       children: [
-        const _InfoNote(text: 'Sample market data for interface testing — not live prices.'),
+        _InfoNote(
+          text: widget.snapshot.isLive
+              ? 'Live public market quotes from CoinGecko. Prices may be delayed and are not execution prices.'
+              : 'Offline sample quotes are shown. Tap refresh after reconnecting.',
+        ),
         const SizedBox(height: 18),
         Row(children: [
           const Text('Market watch', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w500)),
+          IconButton(tooltip: 'Refresh market', onPressed: widget.onRefresh, icon: const Icon(Icons.refresh, color: AppColors.warm)),
           const Spacer(),
           const Text('Price alerts', style: TextStyle(color: AppColors.muted)),
           Switch(value: _alerts, onChanged: (value) => setState(() => _alerts = value)),
         ]),
         const SizedBox(height: 8),
         ..._coins.map((coin) {
-          final positive = coin.$4 >= 0;
+          final quote = widget.snapshot.crypto[coin.$1];
+          final price = quote?.usd ?? double.parse(coin.$3.replaceAll(',', ''));
+          final change = quote?.change24h ?? coin.$4;
+          final positive = change >= 0;
           final watching = _watching.contains(coin.$1);
           return ListTile(
             contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 5),
@@ -249,8 +319,8 @@ class _MarketsViewState extends State<_MarketsView> {
             subtitle: Text(coin.$1, style: const TextStyle(color: AppColors.muted)),
             trailing: Row(mainAxisSize: MainAxisSize.min, children: [
               Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.end, children: [
-                Text('\$${coin.$3}'),
-                Text('${positive ? '+' : ''}${coin.$4}%', style: TextStyle(color: positive ? AppColors.green : const Color(0xFFF6465D))),
+                Text('\$${price < 1 ? price.toStringAsFixed(4) : price.toStringAsFixed(2)}'),
+                Text('${positive ? '+' : ''}${change.toStringAsFixed(2)}%', style: TextStyle(color: positive ? AppColors.green : const Color(0xFFF6465D))),
               ]),
               IconButton(
                 tooltip: watching ? 'Remove from watchlist' : 'Add to watchlist',
@@ -326,18 +396,23 @@ class _AnalyticsView extends StatelessWidget {
 }
 
 class _ExpertView extends StatefulWidget {
-  const _ExpertView();
+  const _ExpertView({required this.snapshot});
+  final MarketSnapshot snapshot;
   @override
   State<_ExpertView> createState() => _ExpertViewState();
 }
 
 class _ExpertViewState extends State<_ExpertView> {
   final _controller = TextEditingController();
+  final _expert = CryptoExpertService();
   String? _response;
+  String? _apiKey;
+  bool _loading = false;
 
   @override
   void dispose() {
     _controller.dispose();
+    _expert.close();
     super.dispose();
   }
 
@@ -355,11 +430,27 @@ class _ExpertViewState extends State<_ExpertView> {
             Expanded(child: Text('Educational information only. This expert does not provide financial advice, execute trades, or guarantee future performance. Always do your own research.')),
           ]),
         ),
+        const SizedBox(height: 14),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(color: AppColors.panel, borderRadius: BorderRadius.circular(10)),
+          child: Row(children: [
+            Icon(_apiKey == null ? Icons.memory : Icons.cloud_done_outlined, color: _apiKey == null ? AppColors.blue : AppColors.green),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                _apiKey == null ? 'Offline expert engine' : 'Online LLM connected for this session',
+                style: const TextStyle(fontSize: 13),
+              ),
+            ),
+            TextButton(onPressed: _configureAi, child: Text(_apiKey == null ? 'Connect AI' : 'Change')),
+          ]),
+        ),
         const SizedBox(height: 20),
         const Text('Expert market pulse', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w500)),
         const SizedBox(height: 12),
-        const _InsightCard(symbol: 'BTC/USD', change: '+1.24%', text: 'Consolidation above the 50-day moving average. Volume remains mixed near the recent resistance zone.', positive: true),
-        const _InsightCard(symbol: 'ETH/USD', change: '-0.45%', text: 'Momentum trails Bitcoin while exchange flows remain balanced. Watch the nearby support range.', positive: false),
+        _marketInsight('BTC'),
+        _marketInsight('ETH'),
         const SizedBox(height: 20),
         const Text('High-signal watch items', style: TextStyle(fontSize: 21)),
         const SizedBox(height: 10),
@@ -375,7 +466,9 @@ class _ExpertViewState extends State<_ExpertView> {
             hintText: 'Ask about a market concept…',
             filled: true,
             fillColor: AppColors.panel,
-            suffixIcon: IconButton(onPressed: _answer, icon: const Icon(Icons.send_rounded, color: AppColors.orange)),
+            suffixIcon: _loading
+                ? const Padding(padding: EdgeInsets.all(13), child: CircularProgressIndicator(strokeWidth: 2))
+                : IconButton(onPressed: _answer, icon: const Icon(Icons.send_rounded, color: AppColors.orange)),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: AppColors.stroke)),
           ),
           onSubmitted: (_) => _answer(),
@@ -392,10 +485,83 @@ class _ExpertViewState extends State<_ExpertView> {
     );
   }
 
-  void _answer() {
-    if (_controller.text.trim().isEmpty) return;
+  Widget _marketInsight(String symbol) {
+    final quote = widget.snapshot.crypto[symbol];
+    final change = quote?.change24h ?? 0;
+    final positive = change >= 0;
+    final magnitude = change.abs();
+    final description = magnitude < 1
+        ? 'Price is relatively stable over 24 hours. A small move does not establish a trend; confirm with volume and a longer timeframe.'
+        : positive
+            ? 'Short-term momentum is positive. Check whether volume and liquidity confirm the move, and account for reversal risk.'
+            : 'Short-term momentum is negative. Review support levels, volatility, and downside exposure rather than relying on price alone.';
+    return _InsightCard(
+      symbol: '$symbol/USD',
+      change: '${positive ? '+' : ''}${change.toStringAsFixed(2)}%',
+      text: description,
+      positive: positive,
+    );
+  }
+
+  Future<void> _answer() async {
+    final question = _controller.text.trim();
+    if (question.isEmpty || _loading) return;
+    if (_apiKey == null) {
+      setState(() => _response = _expert.askOffline(question, widget.snapshot));
+      return;
+    }
     setState(() {
-      _response = 'Prototype expert: Consider price trend, trading volume, volatility, liquidity and your own risk tolerance together. No single indicator is sufficient. This offline demo cannot evaluate current market conditions.';
+      _loading = true;
+      _response = null;
+    });
+    try {
+      final answer = await _expert.askOnline(
+        question: question,
+        apiKey: _apiKey!,
+        snapshot: widget.snapshot,
+      );
+      if (mounted) setState(() => _response = answer);
+    } on Object catch (error) {
+      if (mounted) setState(() => _response = 'Online AI unavailable: $error\n\n${_expert.askOffline(question, widget.snapshot)}');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _configureAi() async {
+    final keyController = TextEditingController();
+    final key = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Connect an online AI'),
+        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text(
+            'Enter an OpenRouter API key. It is kept only in memory for this app session and is never committed to the app. '
+            'Questions and the displayed market snapshot will be sent to OpenRouter.',
+            style: TextStyle(color: AppColors.muted, fontSize: 13),
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: keyController,
+            obscureText: true,
+            autocorrect: false,
+            enableSuggestions: false,
+            decoration: const InputDecoration(labelText: 'OpenRouter API key', prefixIcon: Icon(Icons.key_outlined)),
+          ),
+        ]),
+        actions: [
+          if (_apiKey != null)
+            TextButton(onPressed: () => Navigator.pop(context, '__disconnect__'), child: const Text('Disconnect')),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, keyController.text.trim()), child: const Text('Connect')),
+        ],
+      ),
+    );
+    keyController.dispose();
+    if (!mounted || key == null) return;
+    setState(() {
+      _apiKey = key == '__disconnect__' || key.isEmpty ? null : key;
+      _response = null;
     });
   }
 }
@@ -467,6 +633,44 @@ class _Allocation extends StatelessWidget {
           ClipRRect(borderRadius: BorderRadius.circular(4), child: LinearProgressIndicator(value: value, color: color, backgroundColor: AppColors.key, minHeight: 7)),
         ]),
       );
+}
+
+class _MarketStatusBanner extends StatelessWidget {
+  const _MarketStatusBanner({
+    required this.loading,
+    required this.snapshot,
+    required this.error,
+    required this.onRefresh,
+  });
+  final bool loading;
+  final MarketSnapshot snapshot;
+  final String? error;
+  final VoidCallback onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    final live = snapshot.isLive && error == null;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      decoration: BoxDecoration(color: AppColors.panel, borderRadius: BorderRadius.circular(9)),
+      child: Row(children: [
+        if (loading)
+          const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+        else
+          Icon(Icons.circle, size: 11, color: live ? AppColors.green : AppColors.orange),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            loading ? 'Refreshing CoinGecko quotes…' : live ? 'Live CoinGecko market snapshot' : 'Offline sample data · ${error ?? 'not connected'}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 12, color: AppColors.muted),
+          ),
+        ),
+        IconButton(tooltip: 'Refresh', visualDensity: VisualDensity.compact, onPressed: loading ? null : onRefresh, icon: const Icon(Icons.refresh, size: 18)),
+      ]),
+    );
+  }
 }
 
 class _InfoNote extends StatelessWidget {
