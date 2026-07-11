@@ -3,7 +3,14 @@ import 'package:flutter/material.dart';
 import '../theme.dart';
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key});
+  const SettingsScreen({
+    super.key,
+    required this.cryptoToolsEnabled,
+    required this.onCryptoToolsChanged,
+  });
+
+  final bool cryptoToolsEnabled;
+  final ValueChanged<bool> onCryptoToolsChanged;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -73,6 +80,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     titleColor: Color(0xFFFFB4AB),
                     subtitle: 'Remove downloaded rate data',
                     onTap: _cacheCleared,
+                  ),
+                ]),
+                _section('Optional features', [
+                  _SettingsTile(
+                    icon: Icons.currency_bitcoin,
+                    title: 'Crypto workspace',
+                    subtitle: widget.cryptoToolsEnabled
+                        ? 'Portfolio, analytics and expert insights enabled'
+                        : 'Hidden until you choose to enable it',
+                    trailing: Switch(
+                      value: widget.cryptoToolsEnabled,
+                      onChanged: widget.onCryptoToolsChanged,
+                    ),
+                  ),
+                  const _SettingsTile(
+                    icon: Icons.visibility_off_outlined,
+                    title: 'Private by default',
+                    subtitle: 'Crypto tools do not appear until enabled',
                   ),
                 ]),
                 _section('Notifications', [

@@ -3,9 +3,17 @@ import 'package:flutter/material.dart';
 import '../calculator_engine.dart';
 import '../theme.dart';
 import '../widgets/keypad.dart';
+import 'crypto_hub_screen.dart';
 
 class ConverterScreen extends StatefulWidget {
-  const ConverterScreen({super.key});
+  const ConverterScreen({
+    super.key,
+    required this.cryptoToolsEnabled,
+    required this.onCryptoToolsChanged,
+  });
+
+  final bool cryptoToolsEnabled;
+  final ValueChanged<bool> onCryptoToolsChanged;
 
   @override
   State<ConverterScreen> createState() => _ConverterScreenState();
@@ -18,6 +26,7 @@ class _ConverterScreenState extends State<ConverterScreen> {
     _Category('Volume', Icons.water_drop_outlined, {'Liters': 1, 'Milliliters': .001, 'Gallons (US)': 3.7854118, 'Cups': .236588, 'Fluid ounces': .0295735}),
     _Category('Temperature', Icons.thermostat_outlined, {'Celsius': 1, 'Fahrenheit': 1, 'Kelvin': 1}),
     _Category('Currency', Icons.attach_money, {'USD': 1, 'EUR': 1.087, 'GBP': 1.278, 'JPY': .0067, 'INR': .01198, 'AUD': .658}),
+    _Category('Crypto', Icons.currency_bitcoin, {'BTC': 64231.20, 'USD': 1, 'ETH': 3520.45, 'SOL': 142.80, 'BNB': 585.30, 'USDT': 1, 'INR': .01198}),
     _Category('Data', Icons.storage_outlined, {'Bytes': 1, 'Kilobytes': 1024, 'Megabytes': 1048576, 'Gigabytes': 1073741824, 'Terabytes': 1099511627776}),
   ];
 
@@ -94,6 +103,37 @@ class _ConverterScreenState extends State<ConverterScreen> {
               },
             ),
           ),
+          if (_category.name == 'Crypto')
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 2, 18, 5),
+              child: Material(
+                color: widget.cryptoToolsEnabled ? const Color(0xFF30291E) : AppColors.panel,
+                borderRadius: BorderRadius.circular(10),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(10),
+                  onTap: _openCryptoTools,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    child: Row(
+                      children: [
+                        Icon(
+                          widget.cryptoToolsEnabled ? Icons.insights_rounded : Icons.visibility_off_outlined,
+                          color: AppColors.orange,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            widget.cryptoToolsEnabled ? 'Open crypto workspace' : 'Enable optional crypto tools',
+                            style: const TextStyle(color: AppColors.text, fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                        const Icon(Icons.chevron_right, color: AppColors.warm),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
           Expanded(
             child: LayoutBuilder(builder: (context, constraints) {
               final compact = constraints.maxHeight < 650;
@@ -104,15 +144,18 @@ class _ConverterScreenState extends State<ConverterScreen> {
                       padding: EdgeInsets.fromLTRB(24, compact ? 6 : 18, 24, compact ? 8 : 18),
                       child: Column(
                         children: [
-                          if (_category.name == 'Currency')
-                            const Align(
+                          if (_category.name == 'Currency' || _category.name == 'Crypto')
+                            Align(
                               alignment: Alignment.centerLeft,
                               child: Row(children: [
-                                Icon(Icons.circle, color: AppColors.green, size: 11),
-                                SizedBox(width: 7),
-                                Text('LIVE RATES', style: TextStyle(color: AppColors.text, fontSize: 12, letterSpacing: 1.2)),
-                                Spacer(),
-                                Text('Indicative rates', style: TextStyle(color: AppColors.muted, fontSize: 11)),
+                                Icon(Icons.circle, color: _category.name == 'Crypto' ? AppColors.orange : AppColors.green, size: 11),
+                                const SizedBox(width: 7),
+                                Text(
+                                  _category.name == 'Crypto' ? 'SAMPLE RATES' : 'INDICATIVE RATES',
+                                  style: const TextStyle(color: AppColors.text, fontSize: 12, letterSpacing: 1.2),
+                                ),
+                                const Spacer(),
+                                Text(_category.name == 'Crypto' ? 'Offline demo' : 'Reference only', style: const TextStyle(color: AppColors.muted, fontSize: 11)),
                               ]),
                             ),
                           const Spacer(),
@@ -191,6 +234,32 @@ class _ConverterScreenState extends State<ConverterScreen> {
         CalcKey(label: b, compact: true, onTap: () => _type(b)),
         CalcKey(label: c, compact: true, onTap: () => _type(c)),
       ]);
+
+  Future<void> _openCryptoTools() async {
+    if (!widget.cryptoToolsEnabled) {
+      final enabled = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          icon: const Icon(Icons.currency_bitcoin, color: AppColors.orange, size: 38),
+          title: const Text('Enable crypto workspace?'),
+          content: const Text(
+            'This optional area adds portfolio tracking, market analytics and educational expert insights. '
+            'It remains hidden when disabled. Prices in this prototype are sample data and are not financial advice.',
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Not now')),
+            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Enable')),
+          ],
+        ),
+      );
+      if (enabled != true || !mounted) return;
+      widget.onCryptoToolsChanged(true);
+    }
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const CryptoHubScreen()),
+    );
+  }
 
   double _convertTemperature(double value, String from, String to) {
     final celsius = switch (from) {

@@ -30,13 +30,20 @@ class AppShell extends StatefulWidget {
 
 class _AppShellState extends State<AppShell> {
   int _index = 0;
+  bool _cryptoToolsEnabled = false;
 
   @override
   Widget build(BuildContext context) {
     final pages = [
       CalculatorScreen(onOpenSettings: () => setState(() => _index = 2)),
-      const ConverterScreen(),
-      const SettingsScreen(),
+      ConverterScreen(
+        cryptoToolsEnabled: _cryptoToolsEnabled,
+        onCryptoToolsChanged: (value) => setState(() => _cryptoToolsEnabled = value),
+      ),
+      SettingsScreen(
+        cryptoToolsEnabled: _cryptoToolsEnabled,
+        onCryptoToolsChanged: (value) => setState(() => _cryptoToolsEnabled = value),
+      ),
     ];
     return Scaffold(
       body: IndexedStack(index: _index, children: pages),
