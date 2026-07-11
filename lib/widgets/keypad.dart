@@ -48,7 +48,7 @@ class CalcKey extends StatelessWidget {
             child: InkWell(
               onTap: onTap,
               child: Container(
-                constraints: BoxConstraints(minHeight: compact ? 50 : 58),
+                constraints: BoxConstraints(minHeight: compact ? 38 : 58),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(compact ? 12 : 999),
                   border: const Border(top: BorderSide(color: Colors.white10)),

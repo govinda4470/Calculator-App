@@ -133,10 +133,11 @@ class _ConverterScreenState extends State<ConverterScreen> {
                                 child: IconButton(
                                   tooltip: 'Swap units',
                                   onPressed: () => setState(() {
+                                    final converted = _result;
                                     final old = _from;
                                     _from = _to;
                                     _to = old;
-                                    _input = CalculatorEngine.format(_result, precision: 8);
+                                    _input = CalculatorEngine.format(converted, precision: 8);
                                   }),
                                   icon: const Icon(Icons.swap_vert_rounded, color: AppColors.warm),
                                 ),

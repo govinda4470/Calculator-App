@@ -135,7 +135,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
 
   Widget _scientificRow(List<String> labels) {
     return SizedBox(
-      height: 47,
+      height: 52,
       child: Row(
         children: labels.map((label) {
           return CalcKey(
