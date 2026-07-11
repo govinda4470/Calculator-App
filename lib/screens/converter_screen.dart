@@ -355,7 +355,7 @@ class _RateStatus extends StatelessWidget {
         Icon(Icons.circle, color: live ? AppColors.green : AppColors.orange, size: 11),
       const SizedBox(width: 7),
       Text(
-        loading ? 'UPDATING RATES' : live ? 'LIVE RATES' : 'OFFLINE RATES',
+        loading ? 'UPDATING RATES' : live ? 'ONLINE RATES' : 'OFFLINE RATES',
         style: const TextStyle(color: AppColors.text, fontSize: 12, letterSpacing: 1.2),
       ),
       const Spacer(),

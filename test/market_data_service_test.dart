@@ -24,6 +24,16 @@ void main() {
     expect(snapshot.crypto['ETH']!.change24h, -1.25);
   });
 
+  test('parses Binance fallback response', () {
+    final snapshot = MarketDataService.parseBinanceSnapshot({
+      'BTC': {'lastPrice': '71000.50', 'priceChangePercent': '1.75'},
+      'ETH': {'lastPrice': '3600', 'priceChangePercent': '-0.50'},
+    }, DateTime.utc(2026));
+    expect(snapshot.provider, 'Binance');
+    expect(snapshot.crypto['BTC']!.usd, 71000.50);
+    expect(snapshot.crypto['USDT']!.usd, 1);
+  });
+
   test('offline expert uses the current snapshot', () {
     final expert = CryptoExpertService();
     final response = expert.askOffline('What is happening to BTC?', MarketSnapshot.sample());

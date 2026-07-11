@@ -84,7 +84,7 @@ class CryptoExpertService {
   }
 
   static String _marketContext(MarketSnapshot snapshot) {
-    final source = snapshot.isLive ? 'live CoinGecko snapshot' : 'offline sample snapshot';
+    final source = snapshot.isLive ? 'live ${snapshot.provider} snapshot' : 'offline sample snapshot';
     final quotes = snapshot.crypto.entries
         .map((entry) => '${entry.key}: USD ${entry.value.usd}, 24h ${entry.value.change24h.toStringAsFixed(2)}%')
         .join('; ');

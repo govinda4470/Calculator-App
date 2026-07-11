@@ -294,7 +294,7 @@ class _MarketsViewState extends State<_MarketsView> {
       children: [
         _InfoNote(
           text: widget.snapshot.isLive
-              ? 'Live public market quotes from CoinGecko. Prices may be delayed and are not execution prices.'
+              ? 'Live public market quotes from ${widget.snapshot.provider}. Prices may be delayed and are not execution prices.'
               : 'Offline sample quotes are shown. Tap refresh after reconnecting.',
         ),
         const SizedBox(height: 18),
@@ -661,7 +661,7 @@ class _MarketStatusBanner extends StatelessWidget {
         const SizedBox(width: 8),
         Expanded(
           child: Text(
-            loading ? 'Refreshing CoinGecko quotes…' : live ? 'Live CoinGecko market snapshot' : 'Offline sample data · ${error ?? 'not connected'}',
+            loading ? 'Refreshing market quotes…' : live ? 'Live ${snapshot.provider} market snapshot' : 'Offline sample data · ${error ?? 'not connected'}',
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(fontSize: 12, color: AppColors.muted),

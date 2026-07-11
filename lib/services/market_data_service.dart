@@ -21,14 +21,17 @@ class MarketSnapshot {
     required this.crypto,
     required this.updatedAt,
     this.isLive = true,
+    this.provider = 'CoinGecko',
   });
 
   final Map<String, CryptoQuote> crypto;
   final DateTime updatedAt;
   final bool isLive;
+  final String provider;
 
   static MarketSnapshot sample() => MarketSnapshot(
         isLive: false,
+        provider: 'Offline sample',
         updatedAt: DateTime.now(),
         crypto: const {
           'BTC': CryptoQuote(usd: 64231.20, inr: 5361538, change24h: 2.4),
@@ -40,8 +43,9 @@ class MarketSnapshot {
       );
 }
 
-/// Keyless market-data client. Fiat rates come from Frankfurter (ECB-derived)
-/// and crypto quotes come from CoinGecko's public API.
+/// Market-data client. Fiat reference rates come from Frankfurter
+/// (ECB-derived). Crypto quotes use CoinGecko when anonymous access is
+/// available and keyless Binance public tickers as a fallback.
 class MarketDataService {
   MarketDataService({HttpClient? client}) : _client = client ?? HttpClient();
 
@@ -59,7 +63,20 @@ class MarketDataService {
       '?ids=bitcoin,ethereum,solana,binancecoin,tether'
       '&vs_currencies=usd,inr&include_24hr_change=true',
     );
-    return parseCryptoSnapshot(await _getJson(uri), DateTime.now());
+    try {
+      return parseCryptoSnapshot(await _getJson(uri), DateTime.now());
+    } on Object {
+      // CoinGecko can require a demo key or throttle anonymous clients. Binance
+      // public tickers provide a keyless fallback for the supported pairs.
+      const pairs = {'BTC': 'BTCUSDT', 'ETH': 'ETHUSDT', 'SOL': 'SOLUSDT', 'BNB': 'BNBUSDT'};
+      final responses = await Future.wait(
+        pairs.entries.map((entry) async => MapEntry(
+              entry.key,
+              await _getJson(Uri.parse('https://api.binance.com/api/v3/ticker/24hr?symbol=${entry.value}')),
+            )),
+      );
+      return parseBinanceSnapshot(Map.fromEntries(responses), DateTime.now());
+    }
   }
 
   Future<Map<String, dynamic>> _getJson(Uri uri) async {
@@ -120,6 +137,19 @@ class MarketDataService {
     }
     if (quotes.isEmpty) throw const MarketDataException('No valid crypto quotes were returned.');
     return MarketSnapshot(crypto: quotes, updatedAt: updatedAt);
+  }
+
+  static MarketSnapshot parseBinanceSnapshot(Map<String, Map<String, dynamic>> json, DateTime updatedAt) {
+    final quotes = <String, CryptoQuote>{};
+    for (final entry in json.entries) {
+      final price = double.tryParse(entry.value['lastPrice']?.toString() ?? '');
+      final change = double.tryParse(entry.value['priceChangePercent']?.toString() ?? '');
+      if (price == null || price <= 0) continue;
+      quotes[entry.key] = CryptoQuote(usd: price, inr: 0, change24h: change ?? 0);
+    }
+    quotes['USDT'] = const CryptoQuote(usd: 1, inr: 0, change24h: 0);
+    if (quotes.length < 2) throw const MarketDataException('No valid Binance quotes were returned.');
+    return MarketSnapshot(crypto: quotes, updatedAt: updatedAt, provider: 'Binance');
   }
 
   void close() => _client.close(force: true);
